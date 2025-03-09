@@ -67,7 +67,6 @@ const TIMEOUT_SCALING: u32 = 3;
 /// before reading any more messages from the remote peer, throttling the peer.
 const MAX_QUEUED_OUTGOING_RESPONSES: usize = 4;
 
-
 /// The type that advances an established session by listening for incoming messages (from local
 /// node or read from connection) and emitting events back to the
 /// [`SessionManager`](super::SessionManager).

@@ -23,6 +23,7 @@ reth-ethereum-forks.workspace = true
 
 # ethereum
 alloy-primitives = { workspace = true, features = ["getrandom"] }
+alloy-rlp.workspace = true
 
 # eth
 enr = { workspace = true, default-features = false, features = ["rust-secp256k1"] }

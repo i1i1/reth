@@ -11,6 +11,7 @@ use reth_cli::chainspec::ChainSpecParser;
 use reth_cli_runner::CliContext;
 use reth_cli_util::get_secret_key;
 use reth_config::config::{HashingConfig, SenderRecoveryConfig, TransactionLookupConfig};
+use reth_db::DatabaseEnv;
 use reth_db_api::database_metrics::DatabaseMetrics;
 use reth_downloaders::{
     bodies::bodies::BodiesDownloaderBuilder,
@@ -18,8 +19,12 @@ use reth_downloaders::{
 };
 use reth_eth_wire::NetPrimitivesFor;
 use reth_exex::ExExManagerHandle;
-use reth_network::BlockDownloaderProvider;
+use reth_network::{
+    eth_requests::{EthRequestHandler, HandleExtraPeerRequest},
+    BlockDownloaderProvider,
+};
 use reth_network_p2p::HeadersClient;
+use reth_node_api::NodeTypesWithDBAdapter;
 use reth_node_core::{
     args::{NetworkArgs, StageEnum},
     version::{
@@ -34,7 +39,7 @@ use reth_node_metrics::{
     version::VersionInfo,
 };
 use reth_provider::{
-    writer::UnifiedStorageWriter, ChainSpecProvider, DatabaseProviderFactory,
+    writer::UnifiedStorageWriter, ChainSpecProvider, DatabaseProviderFactory, ProviderFactory,
     StageCheckpointReader, StageCheckpointWriter, StaticFileProviderFactory,
 };
 use reth_stages::{
@@ -109,6 +114,8 @@ impl<C: ChainSpecParser<ChainSpec: EthChainSpec + Hardforks + EthereumHardforks>
         Comp: CliNodeComponents<N>,
         F: FnOnce(Arc<C::ChainSpec>) -> Comp,
         P: NetPrimitivesFor<N::Primitives>,
+        EthRequestHandler<ProviderFactory<NodeTypesWithDBAdapter<N, Arc<DatabaseEnv>>>, P>:
+            HandleExtraPeerRequest<P::ExtraPeerRequests>,
     {
         // Raise the fd limit of the process.
         // Does not do anything on windows.

@@ -514,6 +514,9 @@ impl<N: NetworkPrimitives> NetworkManager<N> {
                     response,
                 });
             }
+            PeerRequest::Extra { request, response } => {
+                self.delegate_eth_request(IncomingEthRequest::Extra { peer_id, request, response })
+            }
         }
     }
 

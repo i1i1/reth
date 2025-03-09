@@ -17,8 +17,10 @@ use reth_db_api::{database::Database, database_metrics::DatabaseMetrics};
 use reth_engine_tree::tree::TreeConfig;
 use reth_exex::ExExContext;
 use reth_network::{
-    transactions::TransactionsManagerConfig, NetworkBuilder, NetworkConfig, NetworkConfigBuilder,
-    NetworkHandle, NetworkManager, NetworkPrimitives,
+    eth_requests::{EthRequestHandler, HandleExtraPeerRequest},
+    transactions::TransactionsManagerConfig,
+    NetworkBuilder, NetworkConfig, NetworkConfigBuilder, NetworkHandle, NetworkManager,
+    NetworkPrimitives,
 };
 use reth_node_api::{
     FullNodePrimitives, FullNodeTypes, FullNodeTypesAdapter, NodeAddOns, NodeTypes,
@@ -671,6 +673,7 @@ impl<Node: FullNodeTypes> BuilderContext<Node> {
             > + Unpin
             + 'static,
         Node::Provider: BlockReaderFor<N>,
+        EthRequestHandler<Node::Provider, N>: HandleExtraPeerRequest<N::ExtraPeerRequests>,
     {
         self.start_network_with(builder, pool, Default::default())
     }
@@ -697,6 +700,7 @@ impl<Node: FullNodeTypes> BuilderContext<Node> {
             > + Unpin
             + 'static,
         Node::Provider: BlockReaderFor<N>,
+        EthRequestHandler<Node::Provider, N>: HandleExtraPeerRequest<N::ExtraPeerRequests>,
     {
         let (handle, network, txpool, eth) = builder
             .transactions(pool, tx_config)

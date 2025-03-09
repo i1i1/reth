@@ -13,7 +13,10 @@ use super::{
 };
 use crate::{EthNetworkPrimitives, EthVersion, NetworkPrimitives, SharedTransactions};
 use alloc::{boxed::Box, sync::Arc};
-use alloy_primitives::{bytes::{Buf, BufMut}, Bytes};
+use alloy_primitives::{
+    bytes::{Buf, BufMut},
+    Bytes,
+};
 use alloy_rlp::{length_of_length, Decodable, Encodable, Header};
 use core::fmt::Debug;
 
@@ -441,7 +444,7 @@ impl EthMessageID {
             Self::NodeData => 0x0e,
             Self::GetReceipts => 0x0f,
             Self::Receipts => 0x10,
-            Self::Other(value) => *value,  // Return the stored `u8`
+            Self::Other(value) => *value, // Return the stored `u8`
         }
     }
 
@@ -478,7 +481,7 @@ impl Decodable for EthMessageID {
             0x0e => Self::NodeData,
             0x0f => Self::GetReceipts,
             0x10 => Self::Receipts,
-            unknown=> Self::Other(*unknown),
+            unknown => Self::Other(*unknown),
         };
         buf.advance(1);
         Ok(id)

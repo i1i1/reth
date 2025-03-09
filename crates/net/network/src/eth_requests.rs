@@ -9,8 +9,9 @@ use alloy_eips::BlockHashOrNumber;
 use alloy_rlp::Encodable;
 use futures::StreamExt;
 use reth_eth_wire::{
-    BlockBodies, BlockHeaders, EthNetworkPrimitives, GetBlockBodies, GetBlockHeaders, GetNodeData,
-    GetReceipts, HeadersDirection, NetworkPrimitives, NodeData, Receipts,
+    BlockBodies, BlockHeaders, EthNetworkPrimitives, ExtraPeerRequests, GetBlockBodies,
+    GetBlockHeaders, GetNodeData, GetReceipts, HeadersDirection, NetworkPrimitives,
+    NoExtraPeerRequests, NodeData, Receipts,
 };
 use reth_network_api::test_utils::PeersHandle;
 use reth_network_p2p::error::RequestResult;
@@ -46,6 +47,30 @@ const MAX_BODIES_SERVE: usize = 1024;
 
 /// Maximum size of replies to data retrievals: 2MB
 const SOFT_RESPONSE_LIMIT: usize = 2 * 1024 * 1024;
+
+pub trait HandleExtraPeerRequest<R: ExtraPeerRequests> {
+    fn handle_extra_peer_request(
+        &self,
+        peer_id: PeerId,
+        request: R,
+        response: oneshot::Sender<RequestResult<R::Response>>,
+    );
+}
+
+impl<C, N> HandleExtraPeerRequest<NoExtraPeerRequests> for EthRequestHandler<C, N>
+where
+    N: NetworkPrimitives,
+    C: BlockReader,
+{
+    fn handle_extra_peer_request(
+        &self,
+        _: PeerId,
+        _: NoExtraPeerRequests,
+        _: oneshot::Sender<RequestResult<NoExtraPeerRequests>>,
+    ) {
+        unreachable!("NoExtraPeerRequests is uninhabited")
+    }
+}
 
 /// Manages eth related requests on top of the p2p network.
 ///
@@ -182,6 +207,19 @@ where
         let _ = response.send(Ok(BlockBodies(bodies)));
     }
 
+    fn on_extra_request(
+        &self,
+        peer_id: PeerId,
+        request: N::ExtraPeerRequests,
+        response: oneshot::Sender<
+            RequestResult<<N::ExtraPeerRequests as ExtraPeerRequests>::Response>,
+        >,
+    ) where
+        Self: HandleExtraPeerRequest<N::ExtraPeerRequests>,
+    {
+        self.handle_extra_peer_request(peer_id, request, response)
+    }
+
     fn on_receipts_request(
         &self,
         _peer_id: PeerId,
@@ -225,6 +263,7 @@ where
     C: BlockReader<Block = N::Block, Receipt = N::Receipt>
         + HeaderProvider<Header = N::BlockHeader>
         + Unpin,
+    Self: HandleExtraPeerRequest<N::ExtraPeerRequests>,
 {
     type Output = ();
 
@@ -251,6 +290,9 @@ where
                     }
                     IncomingEthRequest::GetReceipts { peer_id, request, response } => {
                         this.on_receipts_request(peer_id, request, response)
+                    }
+                    IncomingEthRequest::Extra { peer_id, request, response } => {
+                        this.on_extra_request(peer_id, request, response)
                     }
                 }
             },
@@ -314,5 +356,11 @@ pub enum IncomingEthRequest<N: NetworkPrimitives = EthNetworkPrimitives> {
         request: GetReceipts,
         /// The channel sender for the response containing receipts.
         response: oneshot::Sender<RequestResult<Receipts<N::Receipt>>>,
+    },
+    Extra {
+        peer_id: PeerId,
+        request: N::ExtraPeerRequests,
+        response:
+            oneshot::Sender<RequestResult<<N::ExtraPeerRequests as ExtraPeerRequests>::Response>>,
     },
 }

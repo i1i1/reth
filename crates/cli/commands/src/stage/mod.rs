@@ -7,7 +7,11 @@ use clap::{Parser, Subcommand};
 use reth_chainspec::{EthChainSpec, EthereumHardforks, Hardforks};
 use reth_cli::chainspec::ChainSpecParser;
 use reth_cli_runner::CliContext;
+use reth_db::DatabaseEnv;
 use reth_eth_wire::NetPrimitivesFor;
+use reth_network::eth_requests::{EthRequestHandler, HandleExtraPeerRequest};
+use reth_node_api::NodeTypesWithDBAdapter;
+use reth_provider::ProviderFactory;
 
 pub mod drop;
 pub mod dump;
@@ -47,6 +51,8 @@ impl<C: ChainSpecParser<ChainSpec: EthChainSpec + Hardforks + EthereumHardforks>
         Comp: CliNodeComponents<N>,
         F: FnOnce(Arc<C::ChainSpec>) -> Comp,
         P: NetPrimitivesFor<N::Primitives>,
+        EthRequestHandler<ProviderFactory<NodeTypesWithDBAdapter<N, Arc<DatabaseEnv>>>, P>:
+            HandleExtraPeerRequest<P::ExtraPeerRequests>,
     {
         match self.command {
             Subcommands::Run(command) => command.execute::<N, _, _, P>(ctx, components).await,

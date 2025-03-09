@@ -2,9 +2,9 @@
 
 use reth_eth_wire_types::{
     message::RequestPair, BlockBodies, BlockHeaders, Capabilities, DisconnectReason, EthMessage,
-    EthNetworkPrimitives, EthVersion, GetBlockBodies, GetBlockHeaders, GetNodeData,
-    GetPooledTransactions, GetReceipts, NetworkPrimitives, NodeData, PooledTransactions, Receipts,
-    Status,
+    EthNetworkPrimitives, EthVersion, ExtraPeerRequests, GetBlockBodies, GetBlockHeaders,
+    GetNodeData, GetPooledTransactions, GetReceipts, NetworkPrimitives, NodeData,
+    PooledTransactions, Receipts, Status,
 };
 use reth_ethereum_forks::ForkId;
 use reth_network_p2p::error::{RequestError, RequestResult};
@@ -227,6 +227,11 @@ pub enum PeerRequest<N: NetworkPrimitives = EthNetworkPrimitives> {
         /// The channel to send the response for receipts.
         response: oneshot::Sender<RequestResult<Receipts<N::Receipt>>>,
     },
+    Extra {
+        request: N::ExtraPeerRequests,
+        response:
+            oneshot::Sender<RequestResult<<N::ExtraPeerRequests as ExtraPeerRequests>::Response>>,
+    },
 }
 
 // === impl PeerRequest ===
@@ -245,6 +250,7 @@ impl<N: NetworkPrimitives> PeerRequest<N> {
             Self::GetPooledTransactions { response, .. } => response.send(Err(err)).ok(),
             Self::GetNodeData { response, .. } => response.send(Err(err)).ok(),
             Self::GetReceipts { response, .. } => response.send(Err(err)).ok(),
+            Self::Extra { response, .. } => response.send(Err(err)).ok(),
         };
     }
 
@@ -269,6 +275,9 @@ impl<N: NetworkPrimitives> PeerRequest<N> {
             Self::GetReceipts { request, .. } => {
                 EthMessage::GetReceipts(RequestPair { request_id, message: request.clone() })
             }
+            Self::Extra { request, .. } => EthMessage::Other(
+                alloy_rlp::encode(RequestPair { request_id, message: request }).into(),
+            ),
         }
     }
 

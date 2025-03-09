@@ -802,4 +802,5 @@ impl NetworkPrimitives for OpNetworkPrimitives {
     type BroadcastedTransaction = OpTransactionSigned;
     type PooledTransaction = OpPooledTransaction;
     type Receipt = OpReceipt;
+    type ExtraPeerRequests = reth_network::NoExtraPeerRequests;
 }

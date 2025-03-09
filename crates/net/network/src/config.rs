@@ -2,6 +2,7 @@
 
 use crate::{
     error::NetworkError,
+    eth_requests::{EthRequestHandler, HandleExtraPeerRequest},
     import::{BlockImport, ProofOfStakeBlockImport},
     transactions::TransactionsManagerConfig,
     NetworkHandle, NetworkManager,
@@ -153,6 +154,7 @@ where
         + Clone
         + Unpin
         + 'static,
+    EthRequestHandler<C, N>: HandleExtraPeerRequest<N::ExtraPeerRequests>,
 {
     /// Starts the networking stack given a [`NetworkConfig`] and returns a handle to the network.
     pub async fn start_network(self) -> Result<NetworkHandle<N>, NetworkError> {

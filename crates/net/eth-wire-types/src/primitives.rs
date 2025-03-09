@@ -32,6 +32,33 @@ pub trait NetworkPrimitives:
 
     /// The transaction type which peers return in `GetReceipts` messages.
     type Receipt: TxReceipt + RlpEncodableReceipt + RlpDecodableReceipt + Unpin + 'static;
+
+    /// The transaction type which peers return in `GetReceipts` messages.
+    type ExtraPeerRequests: ExtraPeerRequests;
+}
+
+pub trait ExtraPeerRequests: Debug + Encodable + Decodable + Send + Sync + Unpin + 'static {
+    type Response: Debug + Encodable + Decodable + Send + Sync + Unpin + 'static;
+}
+
+/// Uninhabited type for `ExtraPeerRequests`
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NoExtraPeerRequests {}
+
+impl ExtraPeerRequests for NoExtraPeerRequests {
+    type Response = Self;
+}
+
+impl Encodable for NoExtraPeerRequests {
+    fn encode(&self, _: &mut dyn alloy_rlp::BufMut) {
+        unreachable!("Uninhabited type")
+    }
+}
+
+impl Decodable for NoExtraPeerRequests {
+    fn decode(_: &mut &[u8]) -> Result<Self, alloy_rlp::Error> {
+        Err(alloy_rlp::Error::Custom("Uninhabited type can't be constructed"))
+    }
 }
 
 /// This is a helper trait for use in bounds, where some of the [`NetworkPrimitives`] associated
@@ -70,4 +97,5 @@ impl NetworkPrimitives for EthNetworkPrimitives {
     type BroadcastedTransaction = reth_ethereum_primitives::TransactionSigned;
     type PooledTransaction = reth_ethereum_primitives::PooledTransaction;
     type Receipt = reth_ethereum_primitives::Receipt;
+    type ExtraPeerRequests = NoExtraPeerRequests;
 }
