@@ -255,16 +255,11 @@ impl<N: NetworkPrimitives> ActiveSession<N> {
             EthMessage::Receipts(resp) => {
                 on_response!(resp, GetReceipts)
             }
-            EthMessage::Other(bytes) => {
-                let msg_id = bytes.first().copied().unwrap_or(0xFF);
-                // Mark it as a bad message → This will cause a disconnect
-                self.on_bad_message();
-
-                // Disconnect the peer due to protocol violation
-                OnIncomingMessageOutcome::BadMessage {
-                    error: EthStreamError::BadProtocol { message_id: msg_id },
-                    message: EthMessage::Other(bytes),
-                }
+            EthMessage::OtherReq(req) => {
+                on_request!(req, Other, Extra)
+            }
+            EthMessage::OtherResp(resp) => {
+                on_response!(resp, Extra)
             }
         }
     }

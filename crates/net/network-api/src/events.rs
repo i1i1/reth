@@ -275,9 +275,9 @@ impl<N: NetworkPrimitives> PeerRequest<N> {
             Self::GetReceipts { request, .. } => {
                 EthMessage::GetReceipts(RequestPair { request_id, message: request.clone() })
             }
-            Self::Extra { request, .. } => EthMessage::Other(
-                alloy_rlp::encode(RequestPair { request_id, message: request }).into(),
-            ),
+            Self::Extra { request, .. } => {
+                EthMessage::OtherReq(RequestPair { request_id, message: request.clone() })
+            }
         }
     }
 

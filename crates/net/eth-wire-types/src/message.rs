@@ -11,7 +11,9 @@ use super::{
     GetNodeData, GetPooledTransactions, GetReceipts, NewBlock, NewPooledTransactionHashes66,
     NewPooledTransactionHashes68, NodeData, PooledTransactions, Receipts, Status, Transactions,
 };
-use crate::{EthNetworkPrimitives, EthVersion, NetworkPrimitives, SharedTransactions};
+use crate::{
+    EthNetworkPrimitives, EthVersion, ExtraPeerRequests, NetworkPrimitives, SharedTransactions,
+};
 use alloc::{boxed::Box, sync::Arc};
 use alloy_primitives::{
     bytes::{Buf, BufMut},
@@ -104,11 +106,9 @@ impl<N: NetworkPrimitives> ProtocolMessage<N> {
             }
             EthMessageID::GetReceipts => EthMessage::GetReceipts(RequestPair::decode(buf)?),
             EthMessageID::Receipts => EthMessage::Receipts(RequestPair::decode(buf)?),
-            EthMessageID::Other(_) => {
-                let raw_payload = Bytes::copy_from_slice(buf);
-                *buf = &buf[buf.len()..];
-                EthMessage::Other(raw_payload)
-            }
+            EthMessageID::Other(_) => RequestPair::decode(buf)
+                .map(EthMessage::OtherReq)
+                .or_else(|_| RequestPair::decode(buf).map(EthMessage::OtherResp))?,
         };
         Ok(Self { message_type, message })
     }
@@ -237,8 +237,10 @@ pub enum EthMessage<N: NetworkPrimitives = EthNetworkPrimitives> {
         serde(bound = "N::Receipt: serde::Serialize + serde::de::DeserializeOwned")
     )]
     Receipts(RequestPair<Receipts<N::Receipt>>),
-    /// Represents a `Unkown` request-response
-    Other(Bytes),
+    /// Represents an extra request
+    OtherReq(RequestPair<N::ExtraPeerRequests>),
+    /// Represents an extra response
+    OtherResp(RequestPair<<N::ExtraPeerRequests as ExtraPeerRequests>::Response>),
 }
 
 impl<N: NetworkPrimitives> EthMessage<N> {
@@ -262,14 +264,12 @@ impl<N: NetworkPrimitives> EthMessage<N> {
             Self::NodeData(_) => EthMessageID::NodeData,
             Self::GetReceipts(_) => EthMessageID::GetReceipts,
             Self::Receipts(_) => EthMessageID::Receipts,
-            Self::Other(bytes) => {
-                // If the message is unknown, assume the first byte is the message ID
-                if bytes.is_empty() {
-                    EthMessageID::Other(0xFF) // Default unknown ID
-                } else {
-                    EthMessageID::Other(bytes[0]) // Extract ID from first byte
-                }
-            }
+            Self::OtherReq(req) => EthMessageID::Other(
+                <N::ExtraPeerRequests as ExtraPeerRequests>::req_id(&req.message),
+            ),
+            Self::OtherResp(resp) => EthMessageID::Other(
+                <N::ExtraPeerRequests as ExtraPeerRequests>::resp_id(&resp.message),
+            ),
         }
     }
 
@@ -317,7 +317,8 @@ impl<N: NetworkPrimitives> Encodable for EthMessage<N> {
             Self::NodeData(data) => data.encode(out),
             Self::GetReceipts(request) => request.encode(out),
             Self::Receipts(receipts) => receipts.encode(out),
-            Self::Other(unknown) => unknown.encode(out),
+            Self::OtherReq(req) => req.encode(out),
+            Self::OtherResp(resp) => resp.encode(out),
         }
     }
     fn length(&self) -> usize {
@@ -338,7 +339,8 @@ impl<N: NetworkPrimitives> Encodable for EthMessage<N> {
             Self::NodeData(data) => data.length(),
             Self::GetReceipts(request) => request.length(),
             Self::Receipts(receipts) => receipts.length(),
-            Self::Other(unknown) => unknown.length(),
+            Self::OtherReq(req) => req.length(),
+            Self::OtherResp(resp) => resp.length(),
         }
     }
 }

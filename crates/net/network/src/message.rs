@@ -12,6 +12,7 @@ use reth_eth_wire::{
     NewBlockHashes, NewPooledTransactionHashes, NodeData, PooledTransactions, Receipts,
     SharedTransactions, Transactions,
 };
+use reth_eth_wire_types::ExtraPeerRequests;
 use reth_network_api::PeerRequest;
 use reth_network_p2p::error::{RequestError, RequestResult};
 use reth_primitives::ReceiptWithBloom;
@@ -103,6 +104,11 @@ pub enum PeerResponse<N: NetworkPrimitives = EthNetworkPrimitives> {
         /// The receiver channel for the response to a receipts request.
         response: oneshot::Receiver<RequestResult<Receipts<N::Receipt>>>,
     },
+    Other {
+        /// The receiver channel for the response to a receipts request.
+        response:
+            oneshot::Receiver<RequestResult<<N::ExtraPeerRequests as ExtraPeerRequests>::Response>>,
+    },
 }
 
 // === impl PeerResponse ===
@@ -135,6 +141,10 @@ impl<N: NetworkPrimitives> PeerResponse<N> {
             Self::Receipts { response } => {
                 poll_request!(response, Receipts, cx)
             }
+            Self::Other { response } => match ready!(response.poll_unpin(cx)) {
+                Ok(res) => PeerResponseResult::Extra(res),
+                Err(err) => PeerResponseResult::Extra(Err(err.into())),
+            },
         };
         Poll::Ready(res)
     }
@@ -153,6 +163,8 @@ pub enum PeerResponseResult<N: NetworkPrimitives = EthNetworkPrimitives> {
     NodeData(RequestResult<Vec<Bytes>>),
     /// Represents a result containing receipts or an error.
     Receipts(RequestResult<Vec<Vec<ReceiptWithBloom<N::Receipt>>>>),
+    /// Represents a result containing receipts or an error.
+    Extra(RequestResult<<N::ExtraPeerRequests as ExtraPeerRequests>::Response>),
 }
 
 // === impl PeerResponseResult ===
@@ -187,6 +199,14 @@ impl<N: NetworkPrimitives> PeerResponseResult<N> {
             Self::Receipts(resp) => {
                 to_message!(resp, Receipts, id)
             }
+            Self::Extra(Err(err)) => Err(err),
+            Self::Extra(Ok(res)) => {
+                let request = RequestPair::<<N::ExtraPeerRequests as ExtraPeerRequests>::Response> {
+                    request_id: id,
+                    message: res,
+                };
+                Ok(EthMessage::OtherResp(request))
+            }
         }
     }
 
@@ -198,6 +218,7 @@ impl<N: NetworkPrimitives> PeerResponseResult<N> {
             Self::PooledTransactions(res) => res.as_ref().err(),
             Self::NodeData(res) => res.as_ref().err(),
             Self::Receipts(res) => res.as_ref().err(),
+            Self::Extra(res) => res.as_ref().err(),
         }
     }
 

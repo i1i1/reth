@@ -1,9 +1,11 @@
 //! Abstraction over primitive types in network messages.
 
+use crate::EthMessageID;
 use alloy_consensus::{RlpDecodableReceipt, RlpEncodableReceipt, TxReceipt};
 use alloy_rlp::{Decodable, Encodable};
 use core::fmt::Debug;
 use reth_primitives_traits::{Block, BlockBody, BlockHeader, NodePrimitives, SignedTransaction};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 /// Abstraction over primitive types which might appear in network messages. See
 /// [`crate::EthMessage`] for more context.
@@ -37,16 +39,49 @@ pub trait NetworkPrimitives:
     type ExtraPeerRequests: ExtraPeerRequests;
 }
 
-pub trait ExtraPeerRequests: Debug + Encodable + Decodable + Send + Sync + Unpin + 'static {
-    type Response: Debug + Encodable + Decodable + Send + Sync + Unpin + 'static;
+pub trait ExtraPeerRequests:
+    Serialize
+    + DeserializeOwned
+    + PartialEq
+    + Eq
+    + Clone
+    + Debug
+    + Encodable
+    + Decodable
+    + Send
+    + Sync
+    + Unpin
+    + 'static
+{
+    type Response: Serialize
+        + DeserializeOwned
+        + Encodable
+        + Decodable
+        + PartialEq
+        + Eq
+        + Clone
+        + Debug
+        + Send
+        + Sync
+        + Unpin
+        + 'static;
+
+    fn req_id(req: &Self) -> u8;
+    fn resp_id(resp: &Self::Response) -> u8;
 }
 
 /// Uninhabited type for `ExtraPeerRequests`
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 pub enum NoExtraPeerRequests {}
 
 impl ExtraPeerRequests for NoExtraPeerRequests {
     type Response = Self;
+    fn req_id(_: &Self) -> u8 {
+        unreachable!()
+    }
+    fn resp_id(_: &Self) -> u8 {
+        unreachable!()
+    }
 }
 
 impl Encodable for NoExtraPeerRequests {
