@@ -2,6 +2,7 @@
 
 mod big_pooled_txs_req;
 mod connect;
+mod extra_peer_requests;
 mod multiplex;
 mod requests;
 mod session;
