@@ -14,10 +14,11 @@ use reth_chainspec::{ChainSpecProvider, EthereumHardforks, Hardforks};
 use reth_eth_wire::{
     protocol::Protocol, DisconnectReason, EthNetworkPrimitives, HelloMessageWithProtocols,
 };
+use reth_eth_wire_types::NetworkPrimitives;
 use reth_network_api::{
     events::{PeerEvent, SessionInfo},
     test_utils::{PeersHandle, PeersHandleProvider},
-    NetworkEvent, NetworkEventListenerProvider, NetworkInfo, Peers,
+    NetworkEvent, NetworkEventListenerProvider, NetworkInfo, PeerRequest, Peers,
 };
 use reth_network_peers::PeerId;
 use reth_primitives::{PooledTransaction, TransactionSigned};
@@ -48,16 +49,17 @@ use tokio::{
 };
 
 /// A test network consisting of multiple peers.
-pub struct Testnet<C, Pool> {
+pub struct Testnet<C, Pool, P: NetworkPrimitives = EthNetworkPrimitives> {
     /// All running peers in the network.
-    peers: Vec<Peer<C, Pool>>,
+    peers: Vec<Peer<C, Pool, P>>,
 }
 
 // === impl Testnet ===
 
-impl<C> Testnet<C, TestPool>
+impl<C, P> Testnet<C, TestPool, P>
 where
     C: BlockReader + HeaderProvider + Clone + 'static + ChainSpecProvider<ChainSpec: Hardforks>,
+    P: NetworkPrimitives,
 {
     /// Same as [`Self::try_create_with`] but panics on error
     pub async fn create_with(num_peers: usize, provider: C) -> Self {
@@ -78,7 +80,7 @@ where
     /// [`PeerConfig`]s.
     pub async fn extend_peer_with_config(
         &mut self,
-        configs: impl IntoIterator<Item = PeerConfig<C>>,
+        configs: impl IntoIterator<Item = PeerConfig<C, P>>,
     ) -> Result<(), NetworkError> {
         let peers = configs.into_iter().map(|c| c.launch()).collect::<Vec<_>>();
         let peers = futures::future::join_all(peers).await;
@@ -89,18 +91,19 @@ where
     }
 }
 
-impl<C, Pool> Testnet<C, Pool>
+impl<C, Pool, N> Testnet<C, Pool, N>
 where
     C: BlockReader + HeaderProvider + Clone + 'static,
     Pool: TransactionPool,
+    N: NetworkPrimitives,
 {
     /// Return a mutable slice of all peers.
-    pub fn peers_mut(&mut self) -> &mut [Peer<C, Pool>] {
+    pub fn peers_mut(&mut self) -> &mut [Peer<C, Pool, N>] {
         &mut self.peers
     }
 
     /// Return a slice of all peers.
-    pub fn peers(&self) -> &[Peer<C, Pool>] {
+    pub fn peers(&self) -> &[Peer<C, Pool, N>] {
         &self.peers
     }
 
@@ -108,24 +111,24 @@ where
     ///
     /// # Panics
     /// If the index is out of bounds.
-    pub fn remove_peer(&mut self, index: usize) -> Peer<C, Pool> {
+    pub fn remove_peer(&mut self, index: usize) -> Peer<C, Pool, N> {
         self.peers.remove(index)
     }
 
     /// Return a mutable iterator over all peers.
-    pub fn peers_iter_mut(&mut self) -> impl Iterator<Item = &mut Peer<C, Pool>> + '_ {
+    pub fn peers_iter_mut(&mut self) -> impl Iterator<Item = &mut Peer<C, Pool, N>> + '_ {
         self.peers.iter_mut()
     }
 
     /// Return an iterator over all peers.
-    pub fn peers_iter(&self) -> impl Iterator<Item = &Peer<C, Pool>> + '_ {
+    pub fn peers_iter(&self) -> impl Iterator<Item = &Peer<C, Pool, N>> + '_ {
         self.peers.iter()
     }
 
     /// Add a peer to the [`Testnet`] with the given [`PeerConfig`].
     pub async fn add_peer_with_config(
         &mut self,
-        config: PeerConfig<C>,
+        config: PeerConfig<C, N>,
     ) -> Result<(), NetworkError> {
         let PeerConfig { config, client, secret_key } = config;
 
@@ -143,14 +146,14 @@ where
     }
 
     /// Returns all handles to the networks
-    pub fn handles(&self) -> impl Iterator<Item = NetworkHandle<EthNetworkPrimitives>> + '_ {
+    pub fn handles(&self) -> impl Iterator<Item = NetworkHandle<N>> + '_ {
         self.peers.iter().map(|p| p.handle())
     }
 
     /// Maps the pool of each peer with the given closure
-    pub fn map_pool<F, P>(self, f: F) -> Testnet<C, P>
+    pub fn map_pool<F, P>(self, f: F) -> Testnet<C, P, N>
     where
-        F: Fn(Peer<C, Pool>) -> Peer<C, P>,
+        F: Fn(Peer<C, Pool, N>) -> Peer<C, P, N>,
         P: TransactionPool,
     {
         Testnet { peers: self.peers.into_iter().map(f).collect() }
@@ -159,7 +162,7 @@ where
     /// Apply a closure on each peer
     pub fn for_each<F>(&self, f: F)
     where
-        F: Fn(&Peer<C, Pool>),
+        F: Fn(&Peer<C, Pool, N>),
     {
         self.peers.iter().for_each(f)
     }
@@ -167,7 +170,7 @@ where
     /// Apply a closure on each peer
     pub fn for_each_mut<F>(&mut self, f: F)
     where
-        F: FnMut(&mut Peer<C, Pool>),
+        F: FnMut(&mut Peer<C, Pool, N>),
     {
         self.peers.iter_mut().for_each(f)
     }
@@ -221,7 +224,7 @@ where
     }
 }
 
-impl<C, Pool> Testnet<C, Pool>
+impl<C, Pool, P> Testnet<C, Pool, P>
 where
     C: BlockReader<
             Block = reth_primitives::Block,
@@ -235,9 +238,11 @@ where
             Transaction: PoolTransaction<Consensus = TransactionSigned, Pooled = PooledTransaction>,
         > + Unpin
         + 'static,
+    P: NetworkPrimitives,
+    Self: std::future::Future,
 {
     /// Spawns the testnet to a separate task
-    pub fn spawn(self) -> TestnetHandle<C, Pool> {
+    pub fn spawn(self) -> TestnetHandle<C, Pool, P> {
         let (tx, rx) = oneshot::channel::<oneshot::Sender<Self>>();
         let peers = self.peers.iter().map(|peer| peer.peer_handle()).collect::<Vec<_>>();
         let mut net = self;
@@ -290,7 +295,7 @@ impl<C, Pool> fmt::Debug for Testnet<C, Pool> {
     }
 }
 
-impl<C, Pool> Future for Testnet<C, Pool>
+impl<C, Pool, N> Future for Testnet<C, Pool, N>
 where
     C: BlockReader<
             Block = reth_primitives::Block,
@@ -303,6 +308,10 @@ where
             Transaction: PoolTransaction<Consensus = TransactionSigned, Pooled = PooledTransaction>,
         > + Unpin
         + 'static,
+    N: NetworkPrimitives,
+    TransactionsManager<Pool, N>: Future,
+    EthRequestHandler<C, N>:
+        crate::eth_requests::HandleExtraPeerRequest<N::ExtraPeerRequests> + std::future::Future,
 {
     type Output = ();
 
@@ -316,11 +325,10 @@ where
 }
 
 /// A handle to a [`Testnet`] that can be shared.
-#[derive(Debug)]
-pub struct TestnetHandle<C, Pool> {
+pub struct TestnetHandle<C, Pool, P: NetworkPrimitives = EthNetworkPrimitives> {
     _handle: JoinHandle<()>,
-    peers: Vec<PeerHandle<Pool>>,
-    terminate: oneshot::Sender<oneshot::Sender<Testnet<C, Pool>>>,
+    peers: Vec<PeerHandle<Pool, P>>,
+    terminate: oneshot::Sender<oneshot::Sender<Testnet<C, Pool, P>>>,
 }
 
 // === impl TestnetHandle ===
@@ -373,13 +381,13 @@ impl<C, Pool> TestnetHandle<C, Pool> {
 /// A peer in the [`Testnet`].
 #[pin_project]
 #[derive(Debug)]
-pub struct Peer<C, Pool = TestPool> {
+pub struct Peer<C, Pool = TestPool, P: NetworkPrimitives = EthNetworkPrimitives> {
     #[pin]
-    network: NetworkManager<EthNetworkPrimitives>,
+    network: NetworkManager<P>,
     #[pin]
-    request_handler: Option<EthRequestHandler<C, EthNetworkPrimitives>>,
+    request_handler: Option<EthRequestHandler<C, P>>,
     #[pin]
-    transactions_manager: Option<TransactionsManager<Pool, EthNetworkPrimitives>>,
+    transactions_manager: Option<TransactionsManager<Pool, P>>,
     pool: Option<Pool>,
     client: C,
     secret_key: SecretKey,
@@ -387,10 +395,11 @@ pub struct Peer<C, Pool = TestPool> {
 
 // === impl Peer ===
 
-impl<C, Pool> Peer<C, Pool>
+impl<C, Pool, P> Peer<C, Pool, P>
 where
     C: BlockReader + HeaderProvider + Clone + 'static,
     Pool: TransactionPool,
+    P: NetworkPrimitives,
 {
     /// Returns the number of connected peers.
     pub fn num_peers(&self) -> usize {
@@ -403,7 +412,7 @@ where
     }
 
     /// Returns a handle to the peer's network.
-    pub fn peer_handle(&self) -> PeerHandle<Pool> {
+    pub fn peer_handle(&self) -> PeerHandle<Pool, P> {
         PeerHandle {
             network: self.network.handle().clone(),
             pool: self.pool.clone(),
@@ -422,12 +431,12 @@ where
     }
 
     /// Returns mutable access to the network.
-    pub fn network_mut(&mut self) -> &mut NetworkManager<EthNetworkPrimitives> {
+    pub fn network_mut(&mut self) -> &mut NetworkManager<P> {
         &mut self.network
     }
 
     /// Returns the [`NetworkHandle`] of this peer.
-    pub fn handle(&self) -> NetworkHandle<EthNetworkPrimitives> {
+    pub fn handle(&self) -> NetworkHandle<P> {
         self.network.handle().clone()
     }
 
@@ -449,7 +458,7 @@ where
     pub fn install_transactions_manager(&mut self, pool: Pool) {
         let (tx, rx) = unbounded_channel();
         self.network.set_transactions(tx);
-        let transactions_manager = TransactionsManager::new(
+        let transactions_manager = TransactionsManager::<_, P>::new(
             self.handle(),
             pool.clone(),
             rx,
@@ -460,9 +469,9 @@ where
     }
 
     /// Set a new transactions manager that's connected to the peer's network
-    pub fn map_transactions_manager<P>(self, pool: P) -> Peer<C, P>
+    pub fn map_transactions_manager<Pool2>(self, pool: Pool2) -> Peer<C, Pool2, P>
     where
-        P: TransactionPool,
+        Pool2: TransactionPool,
     {
         let Self { mut network, request_handler, client, secret_key, .. } = self;
         let (tx, rx) = unbounded_channel();
@@ -484,13 +493,13 @@ where
     }
 
     /// Map transactions manager with custom config
-    pub fn map_transactions_manager_with_config<P>(
+    pub fn map_transactions_manager_with_config<Pool2>(
         self,
-        pool: P,
+        pool: Pool2,
         config: TransactionsManagerConfig,
-    ) -> Peer<C, P>
+    ) -> Peer<C, Pool2, P>
     where
-        P: TransactionPool,
+        Pool2: TransactionPool,
     {
         let Self { mut network, request_handler, client, secret_key, .. } = self;
         let (tx, rx) = unbounded_channel();
@@ -524,7 +533,7 @@ where
     }
 }
 
-impl<C, Pool> Future for Peer<C, Pool>
+impl<C, Pool, N> Future for Peer<C, Pool, N>
 where
     C: BlockReader<
             Block = reth_primitives::Block,
@@ -537,6 +546,10 @@ where
             Transaction: PoolTransaction<Consensus = TransactionSigned, Pooled = PooledTransaction>,
         > + Unpin
         + 'static,
+    N: NetworkPrimitives,
+    TransactionsManager<Pool, N>: Future,
+    EthRequestHandler<C, N>:
+        crate::eth_requests::HandleExtraPeerRequest<N::ExtraPeerRequests> + std::future::Future,
 {
     type Output = ();
 
@@ -557,23 +570,23 @@ where
 
 /// A helper config for setting up the reth networking stack.
 #[derive(Debug)]
-pub struct PeerConfig<C = NoopProvider> {
-    config: NetworkConfig<C>,
+pub struct PeerConfig<C = NoopProvider, N: NetworkPrimitives = EthNetworkPrimitives> {
+    config: NetworkConfig<C, N>,
     client: C,
     secret_key: SecretKey,
 }
 
 /// A handle to a peer in the [`Testnet`].
 #[derive(Debug)]
-pub struct PeerHandle<Pool> {
-    network: NetworkHandle<EthNetworkPrimitives>,
-    transactions: Option<TransactionsHandle<EthNetworkPrimitives>>,
+pub struct PeerHandle<Pool, P: NetworkPrimitives = EthNetworkPrimitives> {
+    network: NetworkHandle<P>,
+    transactions: Option<TransactionsHandle<P>>,
     pool: Option<Pool>,
 }
 
 // === impl PeerHandle ===
 
-impl<Pool> PeerHandle<Pool> {
+impl<Pool, P: NetworkPrimitives> PeerHandle<Pool, P> {
     /// Returns the [`PeerId`] used in the network.
     pub fn peer_id(&self) -> &PeerId {
         self.network.peer_id()
@@ -590,12 +603,12 @@ impl<Pool> PeerHandle<Pool> {
     }
 
     /// Creates a new [`NetworkEvent`] listener channel.
-    pub fn event_listener(&self) -> EventStream<NetworkEvent> {
+    pub fn event_listener(&self) -> EventStream<NetworkEvent<PeerRequest<P>>> {
         self.network.event_listener()
     }
 
     /// Returns the [`TransactionsHandle`] of this peer.
-    pub const fn transactions(&self) -> Option<&TransactionsHandle> {
+    pub const fn transactions(&self) -> Option<&TransactionsHandle<P>> {
         self.transactions.as_ref()
     }
 
@@ -605,19 +618,20 @@ impl<Pool> PeerHandle<Pool> {
     }
 
     /// Returns the [`NetworkHandle`] of this peer.
-    pub const fn network(&self) -> &NetworkHandle<EthNetworkPrimitives> {
+    pub const fn network(&self) -> &NetworkHandle<P> {
         &self.network
     }
 }
 
 // === impl PeerConfig ===
 
-impl<C> PeerConfig<C>
+impl<C, N> PeerConfig<C, N>
 where
     C: BlockReader + HeaderProvider + Clone + 'static,
+    N: NetworkPrimitives,
 {
     /// Launches the network and returns the [Peer] that manages it
-    pub async fn launch(self) -> Result<Peer<C>, NetworkError> {
+    pub async fn launch(self) -> Result<Peer<C, TestPool, N>, NetworkError> {
         let Self { config, client, secret_key } = self;
         let network = NetworkManager::new(config).await?;
         let peer = Peer {
@@ -667,7 +681,7 @@ where
         Self { config, client, secret_key }
     }
 
-    fn network_config_builder(secret_key: SecretKey) -> NetworkConfigBuilder {
+    fn network_config_builder(secret_key: SecretKey) -> NetworkConfigBuilder<N> {
         NetworkConfigBuilder::new(secret_key)
             .listener_addr(SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 0)))
             .discovery_addr(SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 0)))
@@ -686,15 +700,15 @@ impl Default for PeerConfig {
 ///
 /// This makes it easier to await established connections
 #[derive(Debug)]
-pub struct NetworkEventStream {
-    inner: EventStream<NetworkEvent>,
+pub struct NetworkEventStream<R = PeerRequest> {
+    inner: EventStream<NetworkEvent<R>>,
 }
 
 // === impl NetworkEventStream ===
 
-impl NetworkEventStream {
+impl<R: Send + 'static> NetworkEventStream<R> {
     /// Create a new [`NetworkEventStream`] from the given network event receiver stream.
-    pub const fn new(inner: EventStream<NetworkEvent>) -> Self {
+    pub const fn new(inner: EventStream<NetworkEvent<R>>) -> Self {
         Self { inner }
     }
 

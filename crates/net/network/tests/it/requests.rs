@@ -42,7 +42,9 @@ async fn test_get_body() {
     let mut rng = rand::thread_rng();
     let mock_provider = Arc::new(MockEthProvider::default());
 
-    let mut net = Testnet::create_with(2, mock_provider.clone()).await;
+    let mut net =
+        Testnet::<_, _, reth_network::EthNetworkPrimitives>::create_with(2, mock_provider.clone())
+            .await;
 
     // install request handlers
     net.for_each_mut(|peer| peer.install_request_handler());
@@ -84,7 +86,9 @@ async fn test_get_header() {
     let mut rng = rand::thread_rng();
     let mock_provider = Arc::new(MockEthProvider::default());
 
-    let mut net = Testnet::create_with(2, mock_provider.clone()).await;
+    let mut net =
+        Testnet::<_, _, reth_network::EthNetworkPrimitives>::create_with(2, mock_provider.clone())
+            .await;
 
     // install request handlers
     net.for_each_mut(|peer| peer.install_request_handler());
