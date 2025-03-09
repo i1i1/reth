@@ -174,6 +174,7 @@ impl<N: NetworkPrimitives> ActiveSession<N> {
                     match req.request {
                         RequestState::Waiting(PeerRequest::$item { response, .. }) => {
                             let _ = response.send(Ok(message));
+                            tracing::error!("Waiting");
                             self.update_request_timeout(req.timestamp, Instant::now());
                         }
                         RequestState::Waiting(request) => {
@@ -256,9 +257,11 @@ impl<N: NetworkPrimitives> ActiveSession<N> {
                 on_response!(resp, GetReceipts)
             }
             EthMessage::OtherReq(req) => {
+                tracing::error!("Req");
                 on_request!(req, Other, Extra)
             }
             EthMessage::OtherResp(resp) => {
+                tracing::error!("Resp");
                 on_response!(resp, Extra)
             }
         }

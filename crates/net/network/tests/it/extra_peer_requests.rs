@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use alloy_consensus::{Header, TxEip2930};
 use alloy_primitives::{Bytes, PrimitiveSignature as Signature, TxKind, U256};
+use alloy_rlp::{RlpDecodable, RlpEncodable};
 use rand::Rng;
 use reth_eth_wire::{ExtraPeerRequests, HeadersDirection};
 use reth_network::{
@@ -20,16 +21,23 @@ use reth_network_p2p::{
 };
 use reth_primitives::{Block, Transaction, TransactionSigned};
 use reth_provider::{test_utils::MockEthProvider, BlockReader};
+use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
 
-#[derive(Debug, alloy_rlp::RlpEncodable, alloy_rlp::RlpDecodable)]
+#[derive(Debug, PartialEq, Eq, Clone, RlpEncodable, RlpDecodable, Deserialize, Serialize)]
 struct Ping;
 
-#[derive(Debug, alloy_rlp::RlpEncodable, alloy_rlp::RlpDecodable)]
+#[derive(Debug, PartialEq, Eq, Clone, RlpEncodable, RlpDecodable, Deserialize, Serialize)]
 struct Pong;
 
 impl ExtraPeerRequests for Ping {
     type Response = Pong;
+    fn req_id(p: &Self) -> u8 {
+        0x20
+    }
+    fn resp_id(p: &Pong) -> u8 {
+        0x21
+    }
 }
 
 impl<C, N> HandleExtraPeerRequest<Ping> for EthRequestHandler<C, N>
@@ -43,7 +51,9 @@ where
         _: Ping,
         response: oneshot::Sender<RequestResult<Pong>>,
     ) {
+        tracing::error!("Responding");
         let _ = response.send(Ok(Pong));
+        tracing::error!("Responding out");
     }
 }
 
@@ -88,5 +98,16 @@ async fn ping() {
     let connected = events0.next_session_established().await.unwrap();
     assert_eq!(connected, *handle1.peer_id());
 
-    todo!()
+    tracing::error!("Here");
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    handle0.send_eth_message(
+        *handle1.peer_id(),
+        reth_network::message::PeerMessage::EthRequest(PeerRequest::Extra {
+            request: Ping,
+            response: tx,
+        }),
+    );
+    tracing::error!("Here");
+    let Pong = rx.await.unwrap().unwrap();
+    tracing::error!("Here");
 }
